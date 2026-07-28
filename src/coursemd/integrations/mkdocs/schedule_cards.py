@@ -16,6 +16,7 @@ from coursemd.core.models.course_event import CourseEvent
 from coursemd.core.models.lab import Lab
 from coursemd.core.schedule import Schedule, ScheduleEntry
 from coursemd.core.utils import current_date
+from coursemd.core.utils import week_start as _week_start
 
 # Map an event kind to the CSS modifier used for its colour dot / accent.
 # Kinds not listed fall back to ``other``.
@@ -68,11 +69,6 @@ def _relative_site_url(link: str, current_page_url: str | None = None) -> str:
         relative_path += "/"
 
     return urlunsplit(("", "", relative_path, parsed.query, parsed.fragment))
-
-
-def _week_start(day: dt.date) -> dt.date:
-    """Return the Monday of the week containing ``day``."""
-    return day - dt.timedelta(days=day.weekday())
 
 
 def _format_range(start: dt.date, end: dt.date) -> str:

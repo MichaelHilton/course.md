@@ -134,7 +134,11 @@ class ScheduleConfig:
         return Schedule.build(
             earliest_date=self.start_date,
             latest_date=self.end_date,
-            events=[*self.events, *(lab.as_course_event() for lab in repository.labs)],
+            events=[
+                *self.events,
+                *(lab.as_course_event() for lab in repository.labs),
+                *(recitation.as_course_event() for recitation in repository.recitations),
+            ],
             breaks=self.breaks,
             assignments=repository.assignments,
             quizzes=repository.quizzes,

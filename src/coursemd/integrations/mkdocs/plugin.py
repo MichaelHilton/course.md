@@ -227,9 +227,14 @@ class CoursemdPlugin(BasePlugin):
                 lab.with_labs_url_path(self.mkdocs_integration.labs_url_path)
                 for lab in self.course_repository.labs
             ]
+            recitations = [
+                recitation.with_recitations_url_path(self.mkdocs_integration.recitations_url_path)
+                for recitation in self.course_repository.recitations
+            ]
             schedule_data["events"] = [
                 *schedule_config.events,
                 *(lab.as_course_event() for lab in labs),
+                *(recitation.as_course_event() for recitation in recitations),
             ]
             schedule_data["breaks"] = schedule_config.breaks
             schedule_data["meeting_days"] = schedule_config.meeting_days
@@ -241,6 +246,7 @@ class CoursemdPlugin(BasePlugin):
                 for assignment in self.course_repository.assignments
             ]
             schedule_data["labs"] = labs
+            schedule_data["recitations"] = recitations
             quizzes = self.course_repository.quizzes
             if canvas_cfg is not None and canvas_course_id is not None:
                 quizzes = inject_quiz_links(quizzes, canvas_cfg.base_url, canvas_course_id)
@@ -262,6 +268,7 @@ class CoursemdPlugin(BasePlugin):
             self.course_repository.paths.assignments_dir,
             self.course_repository.paths.quizzes_dir,
             self.course_repository.paths.labs_dir,
+            self.course_repository.paths.recitations_dir,
             self.course_repository.paths.specs_dir,
         ):
             if not path.exists():

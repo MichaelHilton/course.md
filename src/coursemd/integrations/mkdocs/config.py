@@ -27,6 +27,7 @@ INTEGRATION_NAME = "mkdocs"
 DEFAULT_INIT_SITE_BASE_URL = "https://example.edu/course"
 DEFAULT_INIT_SITE_ASSIGNMENTS_URL_PATH = "assignments"
 DEFAULT_INIT_SITE_LABS_URL_PATH = "labs"
+DEFAULT_INIT_SITE_RECITATIONS_URL_PATH = "recitations"
 DEFAULT_INIT_SITE_PROJECT_DIR = "website"
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class MkdocsIntegrationConfig(IntegrationConfig):
     project_dir: Path
     assignments_url_path: str = DEFAULT_INIT_SITE_ASSIGNMENTS_URL_PATH
     labs_url_path: str = DEFAULT_INIT_SITE_LABS_URL_PATH
+    recitations_url_path: str = DEFAULT_INIT_SITE_RECITATIONS_URL_PATH
     include_specs: bool = False
 
     @classmethod
@@ -80,6 +82,13 @@ class MkdocsIntegrationConfig(IntegrationConfig):
                     DEFAULT_INIT_SITE_LABS_URL_PATH,
                 ),
                 label=f"integrations.{cls.metavar}.labs_url_path",
+            ),
+            recitations_url_path=require_url_path(
+                config_map.get(
+                    "recitations_url_path",
+                    DEFAULT_INIT_SITE_RECITATIONS_URL_PATH,
+                ),
+                label=f"integrations.{cls.metavar}.recitations_url_path",
             ),
             include_specs=include_specs,
         )

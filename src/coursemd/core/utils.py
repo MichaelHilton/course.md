@@ -67,6 +67,11 @@ def working_days(start_date: dt.date, end_date: dt.date) -> t.Iterator[dt.date]:
         current += dt.timedelta(days=1)
 
 
+def week_start(day: dt.date) -> dt.date:
+    """Return the Monday of the week containing ``day``."""
+    return day - dt.timedelta(days=day.weekday())
+
+
 def working_days_between(start: dt.date, end: dt.date) -> int:
     """
     Calculate the number of working days (Mon-Fri) between two dates, inclusive.

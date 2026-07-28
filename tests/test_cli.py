@@ -725,6 +725,31 @@ def test_course_paths_config_from_dict_defaults_missing_fields(tmp_path: Path) -
     assert paths.env_file == ".env"
 
 
+def test_course_paths_config_accepts_dir_suffixed_keys(tmp_path: Path) -> None:
+    paths = CoursePathsConfig.from_dict(
+        {
+            "data_dir": "course-data",
+            "assignments_dir": "hw",
+            "quizzes_dir": "graded-quizzes",
+            "labs_dir": "sections",
+            "recitations_dir": "recitations",
+        },
+        repo_root=tmp_path,
+    )
+
+    assert paths.data_dir == (tmp_path / "course-data").resolve()
+    assert paths.assignments_dir == (tmp_path / "hw").resolve()
+    assert paths.quizzes_dir == (tmp_path / "graded-quizzes").resolve()
+    assert paths.labs_dir == (tmp_path / "sections").resolve()
+    assert paths.recitations_dir == (tmp_path / "recitations").resolve()
+
+
+def test_course_paths_config_defaults_recitations_dir(tmp_path: Path) -> None:
+    paths = CoursePathsConfig.default(repo_root=tmp_path)
+
+    assert paths.recitations_dir == (tmp_path / "recitations").resolve()
+
+
 def test_config_load_defaults_paths_for_repository_without_quizzes(tmp_path: Path) -> None:
     _write_file(
         tmp_path / ".coursemd.yml",

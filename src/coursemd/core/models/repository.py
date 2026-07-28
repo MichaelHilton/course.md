@@ -9,6 +9,7 @@ from coursemd.core.loaders.repository import load_data_files
 from coursemd.core.loaders.specs import load_assignments
 from coursemd.core.models.lab import Lab
 from coursemd.core.models.quiz import Quiz
+from coursemd.core.models.recitation import Recitation
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -56,6 +57,7 @@ class CourseRepository:
     assignments: list[Assignment] = field(default_factory=list)
     quizzes: list[Quiz] = field(default_factory=list)
     labs: list[Lab] = field(default_factory=list)
+    recitations: list[Recitation] = field(default_factory=list)
 
     @property
     def staff(self) -> list[StaffMember]:
@@ -100,4 +102,5 @@ class CourseRepository:
             assignments=load_assignments(resolved_assignment_files),
             quizzes=Quiz.load_all(resolved_quiz_files),
             labs=Lab.find(config),
+            recitations=Recitation.find(config),
         )
