@@ -1,11 +1,9 @@
 """HTML rendering for course schedules in MkDocs."""
 
-import datetime as dt
 import html
 
-from coursemd.core.models.course_event import CourseEvent
 from coursemd.core.schedule import Schedule, ScheduleEntry
-from coursemd.core.utils import week_start, working_days_between
+from coursemd.core.utils import working_days_between
 
 
 def _render_when(entry: ScheduleEntry) -> str:
@@ -124,65 +122,15 @@ def _render_quiz(entry: ScheduleEntry) -> str:
     return '<td class="quiz"></td>'
 
 
-def _render_recitation_link(event: CourseEvent) -> str:
-    title = html.escape(event.title)
-    attributes = {"class": "label label-blue"}
-    if event.link:
-        attributes["href"] = html.escape(event.link, quote=True)
-    html_attributes = " ".join(f'{k}="{v}"' for k, v in attributes.items())
-    return f"<a {html_attributes}>Recitation: {title}</a>"
-
-
-def _render_recitation_cell(events: list[CourseEvent] | None, rowspan: int) -> str:
-    """Render the recitation cell for the first row of a week's block, spanning its rows."""
-    if not events:
-        return '<td class="recitation"></td>'
-    body = "<br>".join(_render_recitation_link(event) for event in events)
-    return f'<td class="recitation" rowspan="{rowspan}">{body}</td>'
-
-
-def _build_recitation_weeks(
-    schedule: Schedule,
-) -> tuple[dict[dt.date, list[CourseEvent]], dict[dt.date, int]]:
-    """Group recitation events and their week's row count by week (Monday) start date.
-
-    Only weeks that contain at least one recitation event are included in the first
-    mapping; the second mapping gives the number of schedule rows every week spans.
-    """
-    weeks: dict[dt.date, list[ScheduleEntry]] = {}
-    for entry in schedule.entries:
-        weeks.setdefault(week_start(entry.date), []).append(entry)
-
-    recitation_events: dict[dt.date, list[CourseEvent]] = {}
-    for ws, entries in weeks.items():
-        events = [
-            event
-            for entry in entries
-            for event in entry.events
-            if event.kind.strip().lower() == "recitation"
-        ]
-        if events:
-            recitation_events[ws] = events
-
-    week_span = {ws: len(entries) for ws, entries in weeks.items()}
-    return recitation_events, week_span
-
-
 def _render_entry(
     entry: ScheduleEntry,
     include_quiz: bool = True,
     skip_quiz: bool = False,
     skip_assignment: bool = False,
-    include_recitation: bool = False,
-    recitation_html: str = "",
 ) -> str:
     html_quiz = "" if not include_quiz or skip_quiz else _render_quiz(entry)
     html_assignment = "" if skip_assignment else _render_assignment(entry)
-    html_recitation = recitation_html if include_recitation else ""
-    return (
-        f"<tr>{_render_when(entry)}{_render_what(entry)}"
-        f"{html_recitation}{html_quiz}{html_assignment}</tr>"
-    )
+    return f"<tr>{_render_when(entry)}{_render_what(entry)}{html_quiz}{html_assignment}</tr>"
 
 
 def render_schedule(schedule: Schedule) -> str:
@@ -191,24 +139,19 @@ def render_schedule(schedule: Schedule) -> str:
         return "<p><em>No events yet.</em></p>"
 
     has_quizzes = any(entry.quiz_released or entry.quiz_due for entry in schedule.entries)
-    recitation_events_by_week, recitation_week_span = _build_recitation_weeks(schedule)
-    has_recitations = bool(recitation_events_by_week)
 
-    recitation_header = "<th>Recitation</th>" if has_recitations else ""
     quiz_header = "<th>Quiz</th>" if has_quizzes else ""
     out = (
         '<div id="schedule"><table><thead><tr><th>Date</th><th>Event</th>'
-        f"{recitation_header}{quiz_header}<th>Assignment</th></tr></thead><tbody>"
+        f"{quiz_header}<th>Assignment</th></tr></thead><tbody>"
     )
 
     quiz_span_remaining = 0
     assignment_span_remaining = 0
-    recitation_span_remaining = 0
 
     for entry in schedule.entries:
         skip_quiz = quiz_span_remaining > 0
         skip_assignment = assignment_span_remaining > 0
-        skip_recitation = recitation_span_remaining > 0
 
         if entry.quiz_released:
             quiz_span_remaining = working_days_between(
@@ -220,33 +163,17 @@ def render_schedule(schedule: Schedule) -> str:
                 entry.assignment_released.due_date,
             )
 
-        recitation_html = ""
-        if has_recitations:
-            if skip_recitation:
-                recitation_html = ""
-            else:
-                ws = week_start(entry.date)
-                week_events = recitation_events_by_week.get(ws)
-                rowspan = recitation_week_span[ws]
-                recitation_html = _render_recitation_cell(week_events, rowspan)
-                if week_events:
-                    recitation_span_remaining = rowspan
-
         out += _render_entry(
             entry,
             include_quiz=has_quizzes,
             skip_quiz=skip_quiz,
             skip_assignment=skip_assignment,
-            include_recitation=has_recitations,
-            recitation_html=recitation_html,
         )
 
         if quiz_span_remaining > 0:
             quiz_span_remaining -= 1
         if assignment_span_remaining > 0:
             assignment_span_remaining -= 1
-        if recitation_span_remaining > 0:
-            recitation_span_remaining -= 1
 
     out += "</tbody></table></div>"
     return out
