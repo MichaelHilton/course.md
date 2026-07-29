@@ -41,6 +41,7 @@ class MkdocsIntegrationConfig(IntegrationConfig):
     labs_url_path: str = DEFAULT_INIT_SITE_LABS_URL_PATH
     recitations_url_path: str = DEFAULT_INIT_SITE_RECITATIONS_URL_PATH
     include_specs: bool = False
+    show_unreleased_content: bool = False
 
     @classmethod
     def parse(
@@ -58,6 +59,11 @@ class MkdocsIntegrationConfig(IntegrationConfig):
         if not isinstance(include_specs, bool):
             raise CoursemdValidationError(
                 f"integrations.{cls.metavar}.include_specs must be a boolean."
+            )
+        show_unreleased_content = config_map.get("show_unreleased_content", False)
+        if not isinstance(show_unreleased_content, bool):
+            raise CoursemdValidationError(
+                f"integrations.{cls.metavar}.show_unreleased_content must be a boolean."
             )
         return cls(
             base_url=require_string(
@@ -91,6 +97,7 @@ class MkdocsIntegrationConfig(IntegrationConfig):
                 label=f"integrations.{cls.metavar}.recitations_url_path",
             ),
             include_specs=include_specs,
+            show_unreleased_content=show_unreleased_content,
         )
 
     @classmethod

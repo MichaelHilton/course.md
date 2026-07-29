@@ -19,6 +19,7 @@ from coursemd.integrations.mkdocs.schedule_cards import (
 if t.TYPE_CHECKING:
     from coursemd.core.models.assignment import Assignment
     from coursemd.core.models.lab import Lab
+    from coursemd.core.models.recitation import Recitation
     from coursemd.core.models.staff import StaffMember
 
 _TH_EXCEPTION_MIN = 11  # 11th, 12th, 13th are exceptions to ordinal suffix rules
@@ -217,14 +218,19 @@ def define_env(env: t.Any) -> None:
         """
         Return a list of assignments that have been released.
 
+        If ``integrations.mkdocs.show_unreleased_content`` is set, all assignments are
+        returned regardless of release date.
+
         Args:
             schedule: Dictionary containing schedule data
 
         Returns:
             List of assignment dictionaries that have been released
         """
-        now = current_date()
         assignments = t.cast("list[Assignment]", schedule.get("assignments", []))
+        if schedule.get("show_unreleased_content"):
+            return list(assignments)
+        now = current_date()
         return [assignment for assignment in assignments if assignment.release_date <= now]
 
     @env.macro
@@ -232,15 +238,40 @@ def define_env(env: t.Any) -> None:
         """
         Return a list of labs whose session date has passed.
 
+        If ``integrations.mkdocs.show_unreleased_content`` is set, all labs are returned
+        regardless of date.
+
         Args:
             schedule: Dictionary containing schedule data
 
         Returns:
             List of lab objects whose date is on or before today
         """
-        now = current_date()
         labs = t.cast("list[Lab]", schedule.get("labs", []))
+        if schedule.get("show_unreleased_content"):
+            return list(labs)
+        now = current_date()
         return [lab for lab in labs if lab.date <= now]
+
+    @env.macro
+    def released_recitations(schedule: dict[str, t.Any]) -> list[Recitation]:
+        """
+        Return a list of recitations whose session date has passed.
+
+        If ``integrations.mkdocs.show_unreleased_content`` is set, all recitations are
+        returned regardless of date.
+
+        Args:
+            schedule: Dictionary containing schedule data
+
+        Returns:
+            List of recitation objects whose date is on or before today
+        """
+        recitations = t.cast("list[Recitation]", schedule.get("recitations", []))
+        if schedule.get("show_unreleased_content"):
+            return list(recitations)
+        now = current_date()
+        return [recitation for recitation in recitations if recitation.date <= now]
 
     @env.macro
     def grade_table(

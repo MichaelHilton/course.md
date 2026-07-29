@@ -77,3 +77,11 @@ spec `kind: lecture_spec` and a `date` in its front matter. `coursemd site previ
 `schedule_cards` adds a **View lecture spec** link to the lecture on the same date.
 Regular `coursemd site build` omits both the pages and the links. The setting defaults to
 `false`.
+
+### Showing unreleased content
+
+Set `integrations.mkdocs.show_unreleased_content: true` to make `released_labs(schedule)`
+and `released_assignments(schedule)` return every lab and assignment regardless of their
+date or release date. This is useful for previewing a course site before the term starts,
+when every lab/assignment date is still in the future and the default date filtering would
+otherwise hide everything. The setting defaults to `false`.

@@ -85,6 +85,32 @@ hide:
 </table>
 """
 
+_RECITATIONS_OVERVIEW_TEMPLATE = """\
+---
+title: Recitations
+hide:
+- navigation
+- toc
+---
+
+<table style="width:100%; font-size:0.95rem">
+<thead>
+<tr>
+  <th>Recitation</th>
+  <th style="text-align:center">Date</th>
+</tr>
+</thead>
+<tbody>
+{% for recitation in released_recitations(schedule) %}
+<tr>
+  <td><a href="{{ recitation.source_file.stem }}">{{ recitation.title }}</a></td>
+  <td style="text-align:center">{{ recitation.date.strftime("%b %-d, %Y") }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+"""
+
 
 @dataclass
 class _MacroRegistry:
@@ -238,6 +264,7 @@ class CoursemdPlugin(BasePlugin):
             ]
             schedule_data["breaks"] = schedule_config.breaks
             schedule_data["meeting_days"] = schedule_config.meeting_days
+            schedule_data["show_unreleased_content"] = self.mkdocs_integration.show_unreleased_content
             canvas_cfg = self.course_repository.get_integration("canvas", CanvasConfig)
             canvas_course_id = schedule_data.get("course", {}).get("canvas_course_id")
 
@@ -295,10 +322,19 @@ class CoursemdPlugin(BasePlugin):
         if self._should_generate_labs_index():
             lab_overview_uri = f"{self.mkdocs_integration.labs_url_path}/index.md"
             lab_nav = [lab_overview_uri, *lab_nav]
+        recitation_nav = self._nav_items_for_markdown_dir(
+            self.course_repository.paths.recitations_dir,
+            base_uri=self.mkdocs_integration.recitations_url_path,
+            include_index=True,
+        )
+        if self._should_generate_recitations_index():
+            recitation_overview_uri = f"{self.mkdocs_integration.recitations_url_path}/index.md"
+            recitation_nav = [recitation_overview_uri, *recitation_nav]
 
         output: list[Any] = []
         saw_assignments = False
         saw_labs = False
+        saw_recitations = False
         for item in nav:
             key = self._nav_key(item)
             if key == "Assignments":
@@ -311,12 +347,19 @@ class CoursemdPlugin(BasePlugin):
                 if lab_nav:
                     output.append({"Labs": lab_nav})
                 continue
+            if key == "Recitations":
+                saw_recitations = True
+                if recitation_nav:
+                    output.append({"Recitations": recitation_nav})
+                continue
             output.append(item)
 
         if assignment_nav and not saw_assignments:
             output.append({"Assignments": assignment_nav})
         if lab_nav and not saw_labs:
             output.append({"Labs": lab_nav})
+        if recitation_nav and not saw_recitations:
+            output.append({"Recitations": recitation_nav})
         return output
 
     def _nav_items_for_markdown_dir(
@@ -355,6 +398,10 @@ class CoursemdPlugin(BasePlugin):
         labs_dir = self.course_repository.paths.labs_dir
         return labs_dir.is_dir() and not (labs_dir / "index.md").exists()
 
+    def _should_generate_recitations_index(self) -> bool:
+        recitations_dir = self.course_repository.paths.recitations_dir
+        return recitations_dir.is_dir() and not (recitations_dir / "index.md").exists()
+
     def _add_generated_pages(self, files: Files, config: MkDocsConfig) -> None:
         for directory, base_uri, include_index in (
             (
@@ -365,6 +412,11 @@ class CoursemdPlugin(BasePlugin):
             (
                 self.course_repository.paths.labs_dir,
                 self.mkdocs_integration.labs_url_path,
+                True,
+            ),
+            (
+                self.course_repository.paths.recitations_dir,
+                self.mkdocs_integration.recitations_url_path,
                 True,
             ),
         ):
@@ -396,6 +448,13 @@ class CoursemdPlugin(BasePlugin):
             if files.get_file_from_path(src_uri) is None:
                 files.append(
                     File.generated(config, src_uri, content=_LABS_OVERVIEW_TEMPLATE),
+                )
+
+        if self._should_generate_recitations_index():
+            src_uri = f"{self.mkdocs_integration.recitations_url_path}/index.md"
+            if files.get_file_from_path(src_uri) is None:
+                files.append(
+                    File.generated(config, src_uri, content=_RECITATIONS_OVERVIEW_TEMPLATE),
                 )
 
     def _macro_registry(self, *, config: MkDocsConfig, page: Any | None) -> _MacroRegistry:
