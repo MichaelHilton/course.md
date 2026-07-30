@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from mkdocs.structure.nav import Navigation
 
 from coursemd.core.config import CourseConfig
+from coursemd.core.loaders.assignments import discover_assignment_sources
 from coursemd.core.loaders.dates import parse_date
 from coursemd.core.models.repository import CourseRepository
 from coursemd.core.utils import current_date, set_course_timezone
@@ -306,11 +307,8 @@ class CoursemdPlugin(BasePlugin):
         config["watch"] = watched
 
     def _generated_nav(self, nav: list[Any]) -> list[Any]:
-        assignment_nav = self._nav_items_for_markdown_dir(
-            self.course_repository.paths.assignments_dir,
-            base_uri=self.mkdocs_integration.assignments_url_path,
-            include_index=True,
-        )
+        assignments_label = self.mkdocs_integration.assignments_label
+        assignment_nav = self._nav_items_for_assignments_dir()
         if self._should_generate_assignments_index():
             overview_uri = f"{self.mkdocs_integration.assignments_url_path}/index.md"
             assignment_nav = [overview_uri, *assignment_nav]
@@ -337,10 +335,10 @@ class CoursemdPlugin(BasePlugin):
         saw_recitations = False
         for item in nav:
             key = self._nav_key(item)
-            if key == "Assignments":
+            if key == assignments_label:
                 saw_assignments = True
                 if assignment_nav:
-                    output.append({"Assignments": assignment_nav})
+                    output.append({assignments_label: assignment_nav})
                 continue
             if key == "Labs":
                 saw_labs = True
@@ -355,7 +353,7 @@ class CoursemdPlugin(BasePlugin):
             output.append(item)
 
         if assignment_nav and not saw_assignments:
-            output.append({"Assignments": assignment_nav})
+            output.append({assignments_label: assignment_nav})
         if lab_nav and not saw_labs:
             output.append({"Labs": lab_nav})
         if recitation_nav and not saw_recitations:
@@ -390,6 +388,54 @@ class CoursemdPlugin(BasePlugin):
                 items.append({title: uri})
         return items
 
+    def _nav_items_for_assignments_dir(self) -> list[Any]:
+        """Build nav entries for assignments_dir, one level deeper than labs/recitations.
+
+        A top-level ``<slug>.md`` file is a single-page assignment, listed like any
+        other markdown-dir entry. A top-level directory with an ``index.md`` is a
+        multi-page assignment: its ``index.md`` becomes the section's index page and
+        every other ``*.md`` file found under that directory becomes a nested child.
+        """
+        directory = self.course_repository.paths.assignments_dir
+        if not directory.is_dir():
+            return []
+        base_uri = self.mkdocs_integration.assignments_url_path
+        items: list[Any] = []
+        for source in discover_assignment_sources(directory):
+            index_metadata = self._load_markdown_metadata(source.record_file)
+            if not self.in_preview and self._should_remove_file(index_metadata):
+                continue
+            index_uri = self._assignment_uri(source.record_file, directory, base_uri)
+            if source.record_file.name != "index.md":
+                title = str(index_metadata.get("title") or source.record_file.stem).strip()
+                items.append({title: index_uri})
+                continue
+            if not source.satellite_files:
+                items.append(index_uri)
+                continue
+            group_title = str(
+                index_metadata.get("title") or source.record_file.parent.name
+            ).strip()
+            children: list[Any] = [index_uri]
+            for satellite in self._sorted_assignment_satellites(source.satellite_files):
+                satellite_metadata = self._load_markdown_metadata(satellite)
+                if not self.in_preview and self._should_remove_file(satellite_metadata):
+                    continue
+                title = str(satellite_metadata.get("title") or satellite.stem).strip()
+                children.append({title: self._assignment_uri(satellite, directory, base_uri)})
+            items.append({group_title: children})
+        return items
+
+    def _sorted_assignment_satellites(self, paths: list[Path]) -> list[Path]:
+        def sort_key(path: Path) -> tuple[int, str]:
+            order = self._load_markdown_metadata(path).get("nav_order")
+            return (order if isinstance(order, int) else 1_000_000, path.name)
+
+        return sorted(paths, key=sort_key)
+
+    def _assignment_uri(self, path: Path, directory: Path, base_uri: str) -> str:
+        return f"{base_uri}/{path.relative_to(directory).as_posix()}"
+
     def _should_generate_assignments_index(self) -> bool:
         assignments_dir = self.course_repository.paths.assignments_dir
         return assignments_dir.is_dir() and not (assignments_dir / "index.md").exists()
@@ -402,13 +448,34 @@ class CoursemdPlugin(BasePlugin):
         recitations_dir = self.course_repository.paths.recitations_dir
         return recitations_dir.is_dir() and not (recitations_dir / "index.md").exists()
 
+    def _add_generated_assignment_pages(self, files: Files, config: MkDocsConfig) -> None:
+        directory = self.course_repository.paths.assignments_dir
+        if not directory.is_dir():
+            return
+        base_uri = self.mkdocs_integration.assignments_url_path
+
+        def register(path: Path) -> None:
+            src_uri = f"{base_uri}/{path.relative_to(directory).as_posix()}"
+            if files.get_file_from_path(src_uri) is not None:
+                return
+            files.append(File.generated(config, src_uri, abs_src_path=str(path)))
+
+        for source in discover_assignment_sources(directory):
+            for path in source.all_files:
+                register(path)
+            if source.record_file.name == "index.md":
+                project_dir = source.record_file.parent
+                for asset in project_dir.rglob("*"):
+                    if asset.is_file() and asset.suffix != ".md":
+                        register(asset)
+
+        top_level_index = directory / "index.md"
+        if top_level_index.is_file():
+            register(top_level_index)
+
     def _add_generated_pages(self, files: Files, config: MkDocsConfig) -> None:
+        self._add_generated_assignment_pages(files, config)
         for directory, base_uri, include_index in (
-            (
-                self.course_repository.paths.assignments_dir,
-                self.mkdocs_integration.assignments_url_path,
-                True,
-            ),
             (
                 self.course_repository.paths.labs_dir,
                 self.mkdocs_integration.labs_url_path,
@@ -439,8 +506,12 @@ class CoursemdPlugin(BasePlugin):
         if self._should_generate_assignments_index():
             src_uri = f"{self.mkdocs_integration.assignments_url_path}/index.md"
             if files.get_file_from_path(src_uri) is None:
+                overview_content = _ASSIGNMENTS_OVERVIEW_TEMPLATE.replace(
+                    "title: Assignments",
+                    f"title: {self.mkdocs_integration.assignments_label}",
+                )
                 files.append(
-                    File.generated(config, src_uri, content=_ASSIGNMENTS_OVERVIEW_TEMPLATE),
+                    File.generated(config, src_uri, content=overview_content),
                 )
 
         if self._should_generate_labs_index():
@@ -494,7 +565,29 @@ class CoursemdPlugin(BasePlugin):
     def _load_file_metadata(self, file: File) -> dict[str, Any]:
         if not file.abs_src_path:
             return {}
-        return self._load_markdown_metadata(Path(file.abs_src_path))
+        path = Path(file.abs_src_path)
+        return self._assignment_release_metadata(path, self._load_markdown_metadata(path))
+
+    def _assignment_release_metadata(self, path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
+        """Satellite assignment pages inherit release gating from their project's index.md.
+
+        A satellite page (e.g. ``assignments/P3/1_checkpoint.md``) rarely declares its
+        own ``release_date``/``reveal_date``/``draft``, so without this it would stay
+        reachable (and appear in search) even while its project's index page is hidden.
+        """
+        if metadata.get("draft") or metadata.get("reveal_date") or metadata.get("release_date"):
+            return metadata
+        assignments_dir = self.course_repository.paths.assignments_dir
+        try:
+            relative = path.relative_to(assignments_dir)
+        except ValueError:
+            return metadata
+        if len(relative.parts) < 2:
+            return metadata
+        index_file = assignments_dir / relative.parts[0] / "index.md"
+        if index_file.is_file() and index_file != path:
+            return self._load_markdown_metadata(index_file)
+        return metadata
 
     def _load_markdown_metadata(self, path: Path) -> dict[str, Any]:
         try:

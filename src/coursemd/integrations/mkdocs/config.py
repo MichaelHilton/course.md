@@ -22,10 +22,12 @@ from coursemd.core.integration_config import (
     IntegrationConfig,
     IntegrationConfigContext,
 )
+from coursemd.core.loaders.validation import optional_string
 
 INTEGRATION_NAME = "mkdocs"
 DEFAULT_INIT_SITE_BASE_URL = "https://example.edu/course"
 DEFAULT_INIT_SITE_ASSIGNMENTS_URL_PATH = "assignments"
+DEFAULT_ASSIGNMENTS_LABEL = "Assignments"
 DEFAULT_INIT_SITE_LABS_URL_PATH = "labs"
 DEFAULT_INIT_SITE_RECITATIONS_URL_PATH = "recitations"
 DEFAULT_INIT_SITE_PROJECT_DIR = "website"
@@ -38,6 +40,7 @@ class MkdocsIntegrationConfig(IntegrationConfig):
     base_url: str
     project_dir: Path
     assignments_url_path: str = DEFAULT_INIT_SITE_ASSIGNMENTS_URL_PATH
+    assignments_label: str = DEFAULT_ASSIGNMENTS_LABEL
     labs_url_path: str = DEFAULT_INIT_SITE_LABS_URL_PATH
     recitations_url_path: str = DEFAULT_INIT_SITE_RECITATIONS_URL_PATH
     include_specs: bool = False
@@ -81,6 +84,9 @@ class MkdocsIntegrationConfig(IntegrationConfig):
                     DEFAULT_INIT_SITE_ASSIGNMENTS_URL_PATH,
                 ),
                 label=f"integrations.{cls.metavar}.assignments_url_path",
+            ),
+            assignments_label=(
+                optional_string(config_map.get("assignments_label")) or DEFAULT_ASSIGNMENTS_LABEL
             ),
             labs_url_path=require_url_path(
                 config_map.get(

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeVar
 
+from coursemd.core.loaders.assignments import discover_assignment_sources
 from coursemd.core.loaders.repository import load_data_files
 from coursemd.core.loaders.specs import load_assignments
 from coursemd.core.models.lab import Lab
@@ -33,11 +34,9 @@ def _default_data_files(config: CourseConfig) -> list[Path]:
 
 
 def _default_assignment_files(config: CourseConfig) -> list[Path]:
-    if not config.paths.assignments_dir.is_dir():
-        return []
-    return sorted(
-        path for path in config.paths.assignments_dir.glob("*.md") if path.name != "index.md"
-    )
+    return [
+        source.record_file for source in discover_assignment_sources(config.paths.assignments_dir)
+    ]
 
 
 def _default_quiz_files(config: CourseConfig) -> list[Path]:

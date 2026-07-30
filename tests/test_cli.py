@@ -21,6 +21,7 @@ import coursemd.integrations.quarto.cli
 from coursemd import cli
 from coursemd.core.config import CourseConfig, CoursePathsConfig, ScheduleConfig
 from coursemd.core.exceptions import CoursemdError, CoursemdValidationError
+from coursemd.core.loaders.assignments import discover_assignment_sources
 from coursemd.core.loaders.validation import normalize_release_date
 from coursemd.core.models.assignment import Assignment, AssignmentCheckpoint
 from coursemd.core.models.course_break import CourseBreak
@@ -207,6 +208,201 @@ def test_assignment_load_uses_canonical_loader(tmp_path: Path) -> None:
     assert assignment.source_file == tmp_path / "assignments" / "hw1.md"
     assert assignment.due_at == "2026-01-16T23:59:00-05:00"
     assert assignment.description == "# Homework 1"
+
+
+def test_discover_assignment_sources_finds_nested_project_folders(tmp_path: Path) -> None:
+    _build_repo_fixture(tmp_path)
+    _write_file(
+        tmp_path / "assignments" / "P1" / "index.md",
+        """
+        ---
+        title: "Project 1: Hello, World"
+        release_date: 2026-01-12
+        due_date: 2026-01-16
+        ---
+
+        # Project 1
+        """,
+    )
+    _write_file(
+        tmp_path / "assignments" / "P1" / "1_checkpoint.md",
+        """
+        ---
+        title: Build Checkpoint
+        ---
+
+        # Build Checkpoint
+        """,
+    )
+    _write_file(
+        tmp_path / "assignments" / "P1" / "images" / "diagram.png",
+        "not a real png, just needs to exist",
+    )
+
+    sources = discover_assignment_sources(tmp_path / "assignments")
+
+    by_slug = {source.record_file.parent.name: source for source in sources if source.record_file.name == "index.md"}
+    assert "P1" in by_slug
+    p1 = by_slug["P1"]
+    assert p1.record_file == tmp_path / "assignments" / "P1" / "index.md"
+    assert p1.satellite_files == [tmp_path / "assignments" / "P1" / "1_checkpoint.md"]
+
+    flat = {source.record_file.name for source in sources if source.record_file.name != "index.md"}
+    assert flat == {"hw1.md"}
+
+
+def test_nested_assignment_index_loads_with_parent_folder_slug(tmp_path: Path) -> None:
+    _write_file(
+        tmp_path / "assignments" / "P1" / "index.md",
+        """
+        ---
+        title: "Project 1: Hello, World"
+        release_date: 2026-01-12
+        due_date: 2026-01-16
+        ---
+
+        # Project 1
+        """,
+    )
+
+    assignment = Assignment.load(tmp_path / "assignments" / "P1" / "index.md")
+
+    assert assignment.title == "Project 1: Hello, World"
+    assert assignment.link == "/assignments/P1/"
+
+
+def test_coursemd_mkdocs_plugin_builds_nested_project_pages(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _build_repo_fixture(tmp_path)
+    _write_file(
+        tmp_path / "assignments" / "P1" / "index.md",
+        """
+        ---
+        title: "Project 1: Hello, World"
+        release_date: 2026-01-12
+        due_date: 2026-01-16
+        ---
+
+        # Project 1
+
+        See the [checkpoint](1_checkpoint.md) for details.
+        """,
+    )
+    _write_file(
+        tmp_path / "assignments" / "P1" / "1_checkpoint.md",
+        """
+        ---
+        title: Build Checkpoint
+        ---
+
+        # Build Checkpoint
+        """,
+    )
+    monkeypatch.setenv("CURRENT_DATE_OVERRIDE", "2026-01-13")
+    monkeypatch.chdir(tmp_path / "website")
+
+    config = load_config(config_file="mkdocs.yml", site_dir=str(tmp_path / "site"))
+    config.plugins.on_startup(command="build", dirty=False)
+    try:
+        mkdocs_build(config, dirty=False)
+    finally:
+        config.plugins.on_shutdown()
+
+    assert (tmp_path / "site" / "assignments" / "P1" / "index.html").is_file()
+    assert (tmp_path / "site" / "assignments" / "P1" / "1_checkpoint" / "index.html").is_file()
+    index_html = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    assert "Project 1: Hello, World" in index_html
+    project_html = (tmp_path / "site" / "assignments" / "P1" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert "Build Checkpoint" in project_html
+
+
+def test_coursemd_mkdocs_plugin_hides_satellite_pages_of_unreleased_assignment(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _build_repo_fixture(tmp_path)
+    _write_file(
+        tmp_path / "assignments" / "P1" / "index.md",
+        """
+        ---
+        title: "Project 1: Hello, World"
+        release_date: 2026-02-01
+        due_date: 2026-02-05
+        ---
+
+        # Project 1
+        """,
+    )
+    _write_file(
+        tmp_path / "assignments" / "P1" / "1_checkpoint.md",
+        """
+        ---
+        title: Build Checkpoint
+        ---
+
+        # Build Checkpoint
+        """,
+    )
+    _write_file(
+        tmp_path / "assignments" / "P1" / "always-visible-guide.md",
+        """
+        ---
+        title: Dev Tools Guide
+        release_date: 2026-01-01
+        ---
+
+        # Dev Tools Guide
+        """,
+    )
+    monkeypatch.setenv("CURRENT_DATE_OVERRIDE", "2026-01-13")
+    monkeypatch.chdir(tmp_path / "website")
+
+    config = load_config(config_file="mkdocs.yml", site_dir=str(tmp_path / "site"))
+    config.plugins.on_startup(command="build", dirty=False)
+    try:
+        mkdocs_build(config, dirty=False)
+    finally:
+        config.plugins.on_shutdown()
+
+    # The project isn't released yet: its index and undated satellite are hidden.
+    assert not (tmp_path / "site" / "assignments" / "P1" / "index.html").exists()
+    assert not (tmp_path / "site" / "assignments" / "P1" / "1_checkpoint" / "index.html").exists()
+    # A satellite with its own past release_date opts out of the inherited gating.
+    assert (
+        tmp_path / "site" / "assignments" / "P1" / "always-visible-guide" / "index.html"
+    ).is_file()
+
+
+def test_coursemd_mkdocs_plugin_uses_configured_assignments_label(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _build_repo_fixture(tmp_path)
+    config_path = tmp_path / ".coursemd.yml"
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            "        project_dir: website\n",
+            "        project_dir: website\n        assignments_label: Projects\n",
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CURRENT_DATE_OVERRIDE", "2026-01-13")
+    monkeypatch.chdir(tmp_path / "website")
+
+    config = load_config(config_file="mkdocs.yml", site_dir=str(tmp_path / "site"))
+    config.plugins.on_startup(command="build", dirty=False)
+    try:
+        mkdocs_build(config, dirty=False)
+    finally:
+        config.plugins.on_shutdown()
+
+    index_html = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    assert ">Projects<" in index_html
+    assert ">Assignments<" not in index_html
 
 
 def test_assignment_loads_homework_meta_and_rubric_from_hw3() -> None:
