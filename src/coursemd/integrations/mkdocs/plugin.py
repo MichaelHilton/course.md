@@ -210,7 +210,6 @@ class CoursemdPlugin(BasePlugin):
         files: Files,  # noqa: ARG002
     ) -> str:
         markdown = self._normalize_generated_frontmatter(markdown, page)
-        self._inject_hide_metadata(page)
         registry = self._macro_registry(config=config, page=page)
         template_env = Environment(
             loader=FileSystemLoader(str(config.docs_dir)),
@@ -595,24 +594,9 @@ class CoursemdPlugin(BasePlugin):
         except Exception:  # noqa: BLE001
             return {}
 
-    def _inject_hide_metadata(self, page: Any) -> None:
-        if (
-            self._is_assignment_page(page)
-            or self._is_lab_page(page)
-            or self._is_preview_spec_page(page)
-        ):
-            page.meta.setdefault("hide", ["navigation", "toc"])
-
     def _is_assignment_page(self, page: Any) -> bool:
         prefix = self.mkdocs_integration.assignments_url_path.strip("/") + "/"
         return page.file.src_uri.startswith(prefix)
-
-    def _is_lab_page(self, page: Any) -> bool:
-        prefix = self.mkdocs_integration.labs_url_path.strip("/") + "/"
-        return page.file.src_uri.startswith(prefix)
-
-    def _is_preview_spec_page(self, page: Any) -> bool:
-        return page.file.src_uri.startswith("specs/")
 
     def _normalize_generated_frontmatter(self, markdown: str, page: Any) -> str:
         if not markdown.startswith("---"):
@@ -641,6 +625,9 @@ class CoursemdPlugin(BasePlugin):
     def _should_remove_file(self, metadata: dict[str, Any]) -> bool:
         if metadata.get("draft"):
             return True
+
+        if self.mkdocs_integration.show_unreleased_content:
+            return False
 
         check_date = parse_date(metadata.get("reveal_date") or metadata.get("release_date"))
         return check_date is not None and check_date > self.current_date
