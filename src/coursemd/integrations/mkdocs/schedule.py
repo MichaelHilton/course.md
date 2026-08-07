@@ -1,6 +1,7 @@
 """HTML rendering for course schedules in MkDocs."""
 
 import html
+from typing import Any, Callable
 
 from coursemd.core.schedule import Schedule, ScheduleEntry
 from coursemd.core.utils import working_days_between
@@ -52,9 +53,8 @@ def _render_what(entry: ScheduleEntry) -> str:
     return f'<td class="what">{output}</td>'
 
 
-def _render_assignment(entry: ScheduleEntry) -> str:
+def _render_assignment(entry: ScheduleEntry, num_working_days: int) -> str:
     if assignment := entry.assignment_released:
-        num_working_days = working_days_between(assignment.release_date, assignment.due_date)
         end_date = assignment.due_date
 
         out = (
@@ -87,9 +87,8 @@ def _render_assignment(entry: ScheduleEntry) -> str:
     return '<td class="assignment"></td>'
 
 
-def _render_quiz(entry: ScheduleEntry) -> str:
+def _render_quiz(entry: ScheduleEntry, num_working_days: int) -> str:
     if quiz := entry.quiz_released:
-        num_working_days = working_days_between(quiz.release_date, quiz.due_date)
         due_text = quiz.due_date.strftime("%A, %B %d")
 
         out = (
@@ -122,23 +121,48 @@ def _render_quiz(entry: ScheduleEntry) -> str:
     return '<td class="quiz"></td>'
 
 
-def _render_entry(
-    entry: ScheduleEntry,
-    include_quiz: bool = True,
-    skip_quiz: bool = False,
-    skip_assignment: bool = False,
-) -> str:
-    html_quiz = "" if not include_quiz or skip_quiz else _render_quiz(entry)
-    html_assignment = "" if skip_assignment else _render_assignment(entry)
-    return f"<tr>{_render_when(entry)}{_render_what(entry)}{html_quiz}{html_assignment}</tr>"
+def _compute_rowspans(
+    entries: list[ScheduleEntry],
+    get_released: Callable[[ScheduleEntry], Any | None],
+) -> tuple[dict[int, int], set[int]]:
+    """Compute how many rows each released block should span.
+
+    Blocks are keyed by the index of their first (release) entry. A block's
+    natural span is however many working days lie between its release and
+    due dates, but that's truncated if a *new* block releases before the
+    current one would otherwise end -- e.g. Project 2 releasing while
+    Project 1 is still open. Without the truncation, the later release
+    would silently overwrite the row-span counter without ever being
+    rendered, disappearing from the table entirely.
+
+    Returns a ``(rowspans, covered)`` pair: ``rowspans`` maps a block's
+    starting index to its row count, and ``covered`` is the set of indices
+    absorbed into an earlier block, which should render no cell at all so
+    the earlier row's ``rowspan`` can cover them.
+    """
+    starts = [i for i, entry in enumerate(entries) if get_released(entry) is not None]
+    rowspans: dict[int, int] = {}
+    for pos, i in enumerate(starts):
+        item = get_released(entries[i])
+        assert item is not None
+        natural_end = i + working_days_between(item.release_date, item.due_date) - 1
+        if pos + 1 < len(starts):
+            natural_end = min(natural_end, starts[pos + 1] - 1)
+        rowspans[i] = max(natural_end, i) - i + 1
+
+    covered: set[int] = set()
+    for i, span in rowspans.items():
+        covered.update(range(i + 1, i + span))
+    return rowspans, covered
 
 
 def render_schedule(schedule: Schedule) -> str:
     """Render a Schedule as an HTML table."""
-    if not schedule.entries:
+    entries = list(schedule.entries)
+    if not entries:
         return "<p><em>No events yet.</em></p>"
 
-    has_quizzes = any(entry.quiz_released or entry.quiz_due for entry in schedule.entries)
+    has_quizzes = any(entry.quiz_released or entry.quiz_due for entry in entries)
 
     quiz_header = "<th>Quiz</th>" if has_quizzes else ""
     out = (
@@ -146,34 +170,23 @@ def render_schedule(schedule: Schedule) -> str:
         f"{quiz_header}<th>Assignment</th></tr></thead><tbody>"
     )
 
-    quiz_span_remaining = 0
-    assignment_span_remaining = 0
+    assignment_rowspans, assignment_covered = _compute_rowspans(
+        entries, lambda entry: entry.assignment_released
+    )
+    quiz_rowspans, quiz_covered = _compute_rowspans(entries, lambda entry: entry.quiz_released)
 
-    for entry in schedule.entries:
-        skip_quiz = quiz_span_remaining > 0
-        skip_assignment = assignment_span_remaining > 0
-
-        if entry.quiz_released:
-            quiz_span_remaining = working_days_between(
-                entry.quiz_released.release_date, entry.quiz_released.due_date
-            )
-        if entry.assignment_released:
-            assignment_span_remaining = working_days_between(
-                entry.assignment_released.release_date,
-                entry.assignment_released.due_date,
-            )
-
-        out += _render_entry(
-            entry,
-            include_quiz=has_quizzes,
-            skip_quiz=skip_quiz,
-            skip_assignment=skip_assignment,
+    for i, entry in enumerate(entries):
+        html_quiz = (
+            ""
+            if not has_quizzes or i in quiz_covered
+            else _render_quiz(entry, quiz_rowspans.get(i, 0))
         )
-
-        if quiz_span_remaining > 0:
-            quiz_span_remaining -= 1
-        if assignment_span_remaining > 0:
-            assignment_span_remaining -= 1
+        html_assignment = (
+            ""
+            if i in assignment_covered
+            else _render_assignment(entry, assignment_rowspans.get(i, 0))
+        )
+        out += f"<tr>{_render_when(entry)}{_render_what(entry)}{html_quiz}{html_assignment}</tr>"
 
     out += "</tbody></table></div>"
     return out

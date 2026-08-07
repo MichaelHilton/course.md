@@ -39,6 +39,7 @@ class Schedule:
         breaks: list[CourseBreak],
         assignments: list[Assignment],
         quizzes: list[Quiz],
+        show_unreleased_content: bool = False,
     ) -> t.Self:
         """
         Build a schedule from course data.
@@ -50,6 +51,9 @@ class Schedule:
             breaks: List of break periods
             assignments: List of assignments
             quizzes: List of quizzes
+            show_unreleased_content: If set, include events/assignments/quizzes
+                regardless of release date, matching the whole-page filtering
+                behavior controlled by the same flag elsewhere.
 
         Returns:
             A Schedule object with all entries populated
@@ -82,25 +86,33 @@ class Schedule:
         events_by_date: dict[dt.date, list[CourseEvent]] = {}
         for event in events:
             events_by_date.setdefault(event.date, []).append(event)
-        date_to_events = preview_next(events_by_date)
+        date_to_events = (
+            events_by_date if show_unreleased_content else preview_next(events_by_date)
+        )
 
         # Build assignment dictionaries
         date_to_assignment_release = {
             assignment.release_date: assignment
             for assignment in assignments
-            if assignment.reveal_on <= now
+            if show_unreleased_content or assignment.reveal_on <= now
         }
         date_to_assignment_due = {
             assignment.due_date: assignment
             for assignment in assignments
-            if assignment.release_date <= now
+            if show_unreleased_content or assignment.release_date <= now
         }
 
         # Build quiz dictionaries
         date_to_quiz_release = {
-            quiz.release_date: quiz for quiz in quizzes if quiz.release_date <= now
+            quiz.release_date: quiz
+            for quiz in quizzes
+            if show_unreleased_content or quiz.release_date <= now
         }
-        date_to_quiz_due = {quiz.due_date: quiz for quiz in quizzes if quiz.release_date <= now}
+        date_to_quiz_due = {
+            quiz.due_date: quiz
+            for quiz in quizzes
+            if show_unreleased_content or quiz.release_date <= now
+        }
 
         # Build schedule entries
         entries: list[ScheduleEntry] = []

@@ -153,6 +153,7 @@ def define_env(env: t.Any) -> None:
             breaks=schedule.get("breaks", []),
             assignments=schedule.get("assignments", []),
             quizzes=schedule.get("quizzes", []),
+            show_unreleased_content=schedule.get("show_unreleased_content", False),
         ))
 
     @env.macro
@@ -177,6 +178,7 @@ def define_env(env: t.Any) -> None:
                 breaks=schedule.get("breaks", []),
                 assignments=schedule.get("assignments", []),
                 quizzes=schedule.get("quizzes", []),
+                show_unreleased_content=schedule.get("show_unreleased_content", False),
             ),
             meeting_days=schedule.get("meeting_days"),
             labs=schedule.get("labs", []),
@@ -206,6 +208,7 @@ def define_env(env: t.Any) -> None:
                 breaks=schedule.get("breaks", []),
                 assignments=schedule.get("assignments", []),
                 quizzes=schedule.get("quizzes", []),
+                show_unreleased_content=schedule.get("show_unreleased_content", False),
             ),
             meeting_days=schedule.get("meeting_days"),
             labs=schedule.get("labs", []),
