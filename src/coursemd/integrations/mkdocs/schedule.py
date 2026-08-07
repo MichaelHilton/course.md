@@ -1,8 +1,12 @@
 """HTML rendering for course schedules in MkDocs."""
 
+import datetime as dt
 import html
+from dataclasses import dataclass
 from typing import Any, Callable
 
+from coursemd.core.models.assignment import Assignment
+from coursemd.core.models.checkpoint import AssignmentCheckpoint
 from coursemd.core.schedule import Schedule, ScheduleEntry
 from coursemd.core.utils import working_days_between
 
@@ -53,38 +57,159 @@ def _render_what(entry: ScheduleEntry) -> str:
     return f'<td class="what">{output}</td>'
 
 
-def _render_assignment(entry: ScheduleEntry, num_working_days: int) -> str:
-    if assignment := entry.assignment_released:
-        end_date = assignment.due_date
+@dataclass(frozen=True)
+class _AssignmentBlock:
+    """A single box in the Assignment column: either a whole assignment (no
+    checkpoints defined) or one checkpoint within an assignment that has them.
 
-        out = (
-            f"<b>{html.escape(assignment.title)}</b><br>"
-            f"Due {end_date.strftime('%A, %B %d')} @ 11:59pm"
-        )
+    ``start_index``/``end_index`` are this block's *natural* row range --
+    before resolving conflicts with other blocks that might cover some of the
+    same rows (e.g. one assignment's checkpoint landing inside another
+    assignment's still-open window). ``due_date`` drives that conflict
+    resolution: the block with the nearer deadline wins a contested row.
+    """
 
-        if checkpoints := assignment.checkpoints:
-            out += '<ul class="checkpoints">'
-            for checkpoint in checkpoints:
-                cp_date = checkpoint.date
-                date_str = cp_date.strftime("%a %b ") + str(cp_date.day)
-                out += "<li>"
-                out += '<span class="checkpoint-badge">🚩</span>'
-                out += '<span class="checkpoint-info">'
-                out += f'<span class="checkpoint-date">{date_str}</span>'
-                out += f'<span class="checkpoint-title">{html.escape(checkpoint.title)}</span>'
-                out += "</span>"
-                out += "</li>"
-            out += "</ul>"
+    start_index: int
+    end_index: int
+    due_date: dt.date
+    parent_title: str | None
+    title: str
+    due_label: str
+    link: str
+
+
+def _checkpoint_link(assignment: Assignment, checkpoint: AssignmentCheckpoint) -> str:
+    """Resolve a checkpoint's own page URL from its satellite filename.
+
+    A checkpoint's ``link`` front-matter value (e.g. ``1_checkpoint.md``) names
+    a satellite Markdown file living alongside the assignment's ``index.md``;
+    its published URL is the assignment's own URL with that file's slug
+    appended. Falls back to the parent assignment's page when no ``link`` is set.
+    """
+    if not checkpoint.link:
+        return assignment.link
+    stem = checkpoint.link.rsplit("/", 1)[-1].removesuffix(".md")
+    return f"{assignment.link.rstrip('/')}/{stem}/"
+
+
+def _format_due_label(due_date: dt.date, due_at: dt.datetime | None) -> str:
+    time_label = due_at.strftime("%I:%M%p").lstrip("0").lower() if due_at else "11:59pm"
+    return f"{due_date.strftime('%A, %B %d')} @ {time_label}"
+
+
+def _build_assignment_blocks(entries: list[ScheduleEntry]) -> list[_AssignmentBlock]:
+    """Expand each released assignment into one or more row-spanning blocks.
+
+    An assignment with ``checkpoints`` becomes one block per checkpoint, each
+    covering the working days from the previous checkpoint (or the
+    assignment's release) up to its own date. An assignment with no
+    checkpoints becomes a single block covering its full release-to-due span,
+    matching the previous single-box behavior.
+    """
+    date_to_index = {entry.date: i for i, entry in enumerate(entries)}
+    num_entries = len(entries)
+
+    blocks: list[_AssignmentBlock] = []
+    seen: set[int] = set()
+    for entry in entries:
+        assignment = entry.assignment_released
+        if assignment is None or id(assignment) in seen:
+            continue
+        seen.add(id(assignment))
+
+        release_index = date_to_index.get(assignment.release_date)
+        if release_index is None:
+            continue
+
+        if assignment.checkpoints:
+            cursor_date = assignment.release_date
+            cursor_index = release_index
+            for checkpoint in assignment.checkpoints:
+                # Checkpoint dates aren't guaranteed to land on working days (or
+                # even to strictly increase), so floor the span at 1 row -- a
+                # weekend-only gap between two checkpoints would otherwise
+                # produce a span of 0 and collapse both into the same start
+                # index, silently dropping one from the table.
+                checkpoint_date = max(checkpoint.date, cursor_date)
+                span = max(working_days_between(cursor_date, checkpoint_date), 1)
+                end_index = min(cursor_index + span - 1, num_entries - 1)
+                blocks.append(
+                    _AssignmentBlock(
+                        start_index=cursor_index,
+                        end_index=end_index,
+                        due_date=checkpoint.date,
+                        parent_title=assignment.title,
+                        title=checkpoint.title,
+                        due_label=_format_due_label(checkpoint.date, checkpoint.due_at),
+                        link=_checkpoint_link(assignment, checkpoint),
+                    )
+                )
+                cursor_date = checkpoint_date + dt.timedelta(days=1)
+                cursor_index += span
         else:
-            out += "<br>"
+            span = working_days_between(assignment.release_date, assignment.due_date)
+            blocks.append(
+                _AssignmentBlock(
+                    start_index=release_index,
+                    end_index=min(release_index + span - 1, num_entries - 1),
+                    due_date=assignment.due_date,
+                    parent_title=None,
+                    title=assignment.title,
+                    due_label=_format_due_label(assignment.due_date, None),
+                    link=assignment.link,
+                )
+            )
 
-        attributes = {"class": "label label-red", "href": html.escape(assignment.link, quote=True)}
-        html_attributes = " ".join(f'{k}="{v}"' for k, v in attributes.items())
-        out += f"<a {html_attributes}>Handout</a>"
+    return blocks
 
-        return f'<td class="assignment" rowspan="{num_working_days}">{out}</td>'
 
-    return '<td class="assignment"></td>'
+def _render_assignment_cells(blocks: list[_AssignmentBlock], num_entries: int) -> list[str]:
+    """Render the Assignment column's ``<td>`` for every row.
+
+    Two different assignments' blocks can cover the same rows -- e.g. one
+    project's checkpoint falls inside another project's still-open window.
+    The column can only show one box per row, so each contested row goes to
+    whichever block is due soonest (the more urgent one to show a student).
+    Consecutive rows won over by the same block are merged into one
+    ``rowspan`` cell; a block that loses its middle rows to a nearer deadline
+    simply reappears in a second cell once that conflict ends.
+    """
+    winners: list[_AssignmentBlock | None] = [None] * num_entries
+    for block in blocks:
+        for i in range(block.start_index, block.end_index + 1):
+            current = winners[i]
+            if current is None or block.due_date < current.due_date:
+                winners[i] = block
+
+    cells: list[str] = []
+    i = 0
+    while i < num_entries:
+        block = winners[i]
+        if block is None:
+            cells.append('<td class="assignment"></td>')
+            i += 1
+            continue
+        j = i + 1
+        while j < num_entries and winners[j] is block:
+            j += 1
+        cells.append(_render_assignment_block(block, j - i))
+        cells.extend([""] * (j - i - 1))
+        i = j
+    return cells
+
+
+def _render_assignment_block(block: _AssignmentBlock, rowspan: int) -> str:
+    out = ""
+    if block.parent_title:
+        out += f'<span class="assignment-parent">{html.escape(block.parent_title)}</span><br>'
+    out += f"<b>{html.escape(block.title)}</b><br>"
+    out += f"Due {block.due_label}<br>"
+
+    attributes = {"class": "label label-red", "href": html.escape(block.link, quote=True)}
+    html_attributes = " ".join(f'{k}="{v}"' for k, v in attributes.items())
+    out += f"<a {html_attributes}>Handout</a>"
+
+    return f'<td class="assignment" rowspan="{rowspan}">{out}</td>'
 
 
 def _render_quiz(entry: ScheduleEntry, num_working_days: int) -> str:
@@ -170,9 +295,8 @@ def render_schedule(schedule: Schedule) -> str:
         f"{quiz_header}<th>Assignment</th></tr></thead><tbody>"
     )
 
-    assignment_rowspans, assignment_covered = _compute_rowspans(
-        entries, lambda entry: entry.assignment_released
-    )
+    assignment_blocks = _build_assignment_blocks(entries)
+    assignment_cells = _render_assignment_cells(assignment_blocks, len(entries))
     quiz_rowspans, quiz_covered = _compute_rowspans(entries, lambda entry: entry.quiz_released)
 
     for i, entry in enumerate(entries):
@@ -181,11 +305,7 @@ def render_schedule(schedule: Schedule) -> str:
             if not has_quizzes or i in quiz_covered
             else _render_quiz(entry, quiz_rowspans.get(i, 0))
         )
-        html_assignment = (
-            ""
-            if i in assignment_covered
-            else _render_assignment(entry, assignment_rowspans.get(i, 0))
-        )
+        html_assignment = assignment_cells[i]
         out += f"<tr>{_render_when(entry)}{_render_what(entry)}{html_quiz}{html_assignment}</tr>"
 
     out += "</tbody></table></div>"

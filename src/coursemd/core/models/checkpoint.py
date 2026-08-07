@@ -27,6 +27,7 @@ class AssignmentCheckpoint:
     due_at: dt.datetime
     description: str | None = None
     doc_anchor: str | None = None
+    link: str | None = None
 
     @classmethod
     def from_dict(
@@ -54,6 +55,7 @@ class AssignmentCheckpoint:
             description=optional_string(value.get("description")),
             due_at=checkpoint_due_at,
             doc_anchor=optional_string(value.get("doc_anchor")),
+            link=optional_string(value.get("link")),
         )
 
     @classmethod
