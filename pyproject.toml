@@ -79,6 +79,7 @@ coursemd-drafts = "coursemd.integrations.mkdocs.drafts:DraftsPlugin"
 [project.entry-points."coursemd.integrations"]
 canvas = "coursemd.integrations.canvas.config"
 github = "coursemd.integrations.github.config"
+gradescope = "coursemd.integrations.gradescope.config"
 mkdocs = "coursemd.integrations.mkdocs.config"
 quarto = "coursemd.integrations.quarto.config"
 

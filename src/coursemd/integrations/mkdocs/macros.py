@@ -10,6 +10,7 @@ from coursemd.core.loaders.dates import parse_date as _parse_date
 from coursemd.core.schedule import Schedule
 from coursemd.core.utils import current_date
 from coursemd.integrations.canvas.config import DEFAULT_CANVAS_BASE_URL
+from coursemd.integrations.gradescope.config import DEFAULT_GRADESCOPE_BASE_URL
 from coursemd.integrations.mkdocs.schedule import render_schedule
 from coursemd.integrations.mkdocs.schedule_cards import (
     render_schedule_cards,
@@ -61,6 +62,11 @@ _DEFAULT_STAFFER_TEMPLATE = """
 
 def _configured_canvas_base_url(env: t.Any) -> str:
     raw_value = env.conf.get("extra", {}).get("canvas_base_url") or DEFAULT_CANVAS_BASE_URL
+    return str(raw_value).rstrip("/")
+
+
+def _configured_gradescope_base_url(env: t.Any) -> str:
+    raw_value = env.conf.get("extra", {}).get("gradescope_base_url") or DEFAULT_GRADESCOPE_BASE_URL
     return str(raw_value).rstrip("/")
 
 
@@ -610,6 +616,42 @@ def define_env(env: t.Any) -> None:
         if not doc_id:
             return ""
         return f"https://docs.google.com/document/d/{doc_id}/copy"
+
+    @env.macro
+    def canvas_course_url() -> str:
+        """
+        Return the URL of the course's Canvas home page.
+
+        Reads ``canvas_course_id`` from ``extra`` (or ``schedule.course.canvas_course_id``)
+        and ``canvas_base_url`` from the ``canvas`` integration config.
+
+        Usage in Markdown: [Canvas]({{ canvas_course_url() }})
+        """
+        canvas_course_id = env.conf.get("extra", {}).get(
+            "canvas_course_id"
+        ) or env.variables.get("schedule", {}).get("course", {}).get("canvas_course_id")
+        canvas_base_url = _configured_canvas_base_url(env)
+        return (
+            f"{canvas_base_url}/courses/{canvas_course_id}" if canvas_course_id else canvas_base_url
+        )
+
+    @env.macro
+    def gradescope_course_url() -> str:
+        """
+        Return the URL of the course's Gradescope home page.
+
+        Reads ``gradescope_course_id`` and ``gradescope_base_url`` from the
+        ``gradescope`` integration config.
+
+        Usage in Markdown: [Gradescope]({{ gradescope_course_url() }})
+        """
+        gradescope_course_id = env.conf.get("extra", {}).get("gradescope_course_id")
+        gradescope_base_url = _configured_gradescope_base_url(env)
+        return (
+            f"{gradescope_base_url}/courses/{gradescope_course_id}"
+            if gradescope_course_id
+            else gradescope_base_url
+        )
 
     @env.macro
     def canvas_submission(canvas_id: int) -> str:

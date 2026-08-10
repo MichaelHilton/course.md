@@ -27,6 +27,7 @@ from coursemd.core.models.repository import CourseRepository
 from coursemd.core.utils import current_date, set_course_timezone
 from coursemd.integrations.canvas.config import CanvasConfig
 from coursemd.integrations.canvas.schedule import inject_quiz_links
+from coursemd.integrations.gradescope.config import GradescopeConfig
 from coursemd.integrations.mkdocs.config import MkdocsIntegrationConfig
 from coursemd.integrations.mkdocs.macros import define_env
 
@@ -176,6 +177,10 @@ class CoursemdPlugin(BasePlugin):
         canvas_config = self.course_repository.get_integration("canvas", CanvasConfig)
         if canvas_config is not None:
             extra["canvas_base_url"] = canvas_config.base_url
+        gradescope_config = self.course_repository.get_integration("gradescope", GradescopeConfig)
+        if gradescope_config is not None:
+            extra["gradescope_base_url"] = gradescope_config.base_url
+            extra["gradescope_course_id"] = gradescope_config.course_id
         extra["course_timezone"] = self.course_repository.timezone
         config["extra"] = extra
 

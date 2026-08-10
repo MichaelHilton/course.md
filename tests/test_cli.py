@@ -2019,6 +2019,50 @@ def test_coursemd_mkdocs_plugin_uses_configured_urls(
     assert "/coursework/hw1/" in index_html
 
 
+def test_coursemd_macros_build_canvas_and_gradescope_course_urls(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _build_repo_fixture(tmp_path)
+    config_path = tmp_path / ".coursemd.yml"
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            "    canvas:\n"
+            "        base_url: https://canvas.example.edu\n"
+            "        course_id: 12345\n",
+            "    canvas:\n"
+            "        base_url: https://canvas.example.edu\n"
+            "        course_id: 12345\n"
+            "    gradescope:\n"
+            "        base_url: https://gradescope.example.edu\n"
+            "        course_id: 54321\n",
+        ),
+        encoding="utf-8",
+    )
+    _write_file(
+        tmp_path / "website" / "docs" / "index.md",
+        """
+        # Home
+
+        [Canvas]({{ canvas_course_url() }})
+        [Gradescope]({{ gradescope_course_url() }})
+        """,
+    )
+    monkeypatch.setenv("CURRENT_DATE_OVERRIDE", "2026-01-13")
+    monkeypatch.chdir(tmp_path / "website")
+
+    config = load_config(config_file="mkdocs.yml", site_dir=str(tmp_path / "site"))
+    config.plugins.on_startup(command="build", dirty=False)
+    try:
+        mkdocs_build(config, dirty=False)
+    finally:
+        config.plugins.on_shutdown()
+
+    index_html = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    assert 'href="https://canvas.example.edu/courses/12345"' in index_html
+    assert 'href="https://gradescope.example.edu/courses/54321"' in index_html
+
+
 def test_coursemd_macros_do_not_discover_quizzes_from_docs_dir(
     tmp_path: Path,
     monkeypatch,
