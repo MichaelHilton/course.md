@@ -191,17 +191,16 @@ class CoursemdPlugin(BasePlugin):
 
     def on_files(self, files: Files, *, config: MkDocsConfig, **kwargs: Any) -> Files:  # noqa: ARG002
         self._add_generated_pages(files, config)
-        if not self.in_preview:
-            for file in list(files.documentation_pages()):
-                metadata = self._load_file_metadata(file)
-                if self._should_remove_file(metadata):
-                    print(f"Removing file: {file.src_path}")
-                    self.removed_files.add(file.src_uri)
-                    files.remove(file)
+        for file in list(files.documentation_pages()):
+            metadata = self._load_file_metadata(file)
+            if self._should_remove_file(metadata):
+                print(f"Removing file: {file.src_path}")
+                self.removed_files.add(file.src_uri)
+                files.remove(file)
         return files
 
     def on_nav(self, nav: Navigation, **kwargs: Any) -> Navigation:  # noqa: ARG002
-        if not self.in_preview and self.removed_files:
+        if self.removed_files:
             nav.items = list(self._filter_nav_items(nav.items))
         self._inject_section_urls(nav.items)
         return nav
@@ -381,7 +380,7 @@ class CoursemdPlugin(BasePlugin):
         items: list[Any] = []
         for path in paths:
             metadata = self._load_markdown_metadata(path)
-            if not self.in_preview and self._should_remove_file(metadata):
+            if self._should_remove_file(metadata):
                 continue
             uri = f"{base_uri}/{path.name}"
             if path.name == "index.md":
@@ -407,7 +406,7 @@ class CoursemdPlugin(BasePlugin):
         items: list[Any] = []
         for source in discover_assignment_sources(directory):
             index_metadata = self._load_markdown_metadata(source.record_file)
-            if not self.in_preview and self._should_remove_file(index_metadata):
+            if self._should_remove_file(index_metadata):
                 continue
             index_uri = self._assignment_uri(source.record_file, directory, base_uri)
             if source.record_file.name != "index.md":
@@ -423,7 +422,7 @@ class CoursemdPlugin(BasePlugin):
             children: list[Any] = [index_uri]
             for satellite in self._sorted_assignment_satellites(source.satellite_files):
                 satellite_metadata = self._load_markdown_metadata(satellite)
-                if not self.in_preview and self._should_remove_file(satellite_metadata):
+                if self._should_remove_file(satellite_metadata):
                     continue
                 title = str(satellite_metadata.get("title") or satellite.stem).strip()
                 children.append({title: self._assignment_uri(satellite, directory, base_uri)})
@@ -629,7 +628,9 @@ class CoursemdPlugin(BasePlugin):
 
     def _should_remove_file(self, metadata: dict[str, Any]) -> bool:
         if metadata.get("draft"):
-            return True
+            # Drafts are for in-progress content review and are always visible in
+            # preview, but must never reach a built (production) site.
+            return not self.in_preview
 
         if self.mkdocs_integration.show_unreleased_content:
             return False
