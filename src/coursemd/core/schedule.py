@@ -90,9 +90,16 @@ class Schedule:
             events_by_date if show_unreleased_content else preview_next(events_by_date)
         )
 
+        # The displayed schedule only covers working_days(earliest_date, latest_date),
+        # which floors to the Monday of earliest_date's week. An assignment released
+        # before that floor (e.g. a prep assignment released before the term starts)
+        # would otherwise never land on any visible entry and silently vanish from
+        # the table, so clamp its release marker to the first visible day instead.
+        schedule_start = earliest_date - dt.timedelta(days=earliest_date.weekday())
+
         # Build assignment dictionaries
         date_to_assignment_release = {
-            assignment.release_date: assignment
+            max(assignment.release_date, schedule_start): assignment
             for assignment in assignments
             if show_unreleased_content or assignment.reveal_on <= now
         }

@@ -8,7 +8,7 @@ from typing import Any, Callable
 from coursemd.core.models.assignment import Assignment
 from coursemd.core.models.checkpoint import AssignmentCheckpoint
 from coursemd.core.schedule import Schedule, ScheduleEntry
-from coursemd.core.utils import working_days_between
+from coursemd.core.utils import current_date, working_days_between
 
 
 def _render_when(entry: ScheduleEntry) -> str:
@@ -16,7 +16,7 @@ def _render_when(entry: ScheduleEntry) -> str:
     return f'<td class="when">{html_when}</td>'
 
 
-def _render_what(entry: ScheduleEntry) -> str:
+def _render_what(entry: ScheduleEntry, now: dt.date) -> str:
     output = ""
 
     if entry.events:
@@ -25,7 +25,11 @@ def _render_what(entry: ScheduleEntry) -> str:
             title = html.escape(event.title)
             kind = event.kind.strip().lower()
             attributes = {"class": "label"}
-            if event.link:
+            # ``preview_next`` (see core/schedule.py) teases the next day's
+            # events before their own reveal date has passed, so their pages
+            # are still filtered out of the build -- linking to one would be a
+            # dead link. Only link events whose day has actually arrived.
+            if event.link and entry.date <= now:
                 attributes["href"] = html.escape(event.link, quote=True)
 
             if kind == "lecture":
@@ -106,23 +110,23 @@ def _build_assignment_blocks(entries: list[ScheduleEntry]) -> list[_AssignmentBl
     checkpoints becomes a single block covering its full release-to-due span,
     matching the previous single-box behavior.
     """
-    date_to_index = {entry.date: i for i, entry in enumerate(entries)}
     num_entries = len(entries)
 
     blocks: list[_AssignmentBlock] = []
     seen: set[int] = set()
-    for entry in entries:
+    for release_index, entry in enumerate(entries):
         assignment = entry.assignment_released
         if assignment is None or id(assignment) in seen:
             continue
         seen.add(id(assignment))
 
-        release_index = date_to_index.get(assignment.release_date)
-        if release_index is None:
-            continue
+        # entry.date is where the release marker actually landed, which may be
+        # later than assignment.release_date if the real release date fell
+        # outside the displayed range and got clamped to the first visible day.
+        effective_release_date = entry.date
 
         if assignment.checkpoints:
-            cursor_date = assignment.release_date
+            cursor_date = effective_release_date
             cursor_index = release_index
             for checkpoint in assignment.checkpoints:
                 # Checkpoint dates aren't guaranteed to land on working days (or
@@ -147,7 +151,7 @@ def _build_assignment_blocks(entries: list[ScheduleEntry]) -> list[_AssignmentBl
                 cursor_date = checkpoint_date + dt.timedelta(days=1)
                 cursor_index += span
         else:
-            span = working_days_between(assignment.release_date, assignment.due_date)
+            span = working_days_between(effective_release_date, assignment.due_date)
             blocks.append(
                 _AssignmentBlock(
                     start_index=release_index,
@@ -298,6 +302,7 @@ def render_schedule(schedule: Schedule) -> str:
     assignment_blocks = _build_assignment_blocks(entries)
     assignment_cells = _render_assignment_cells(assignment_blocks, len(entries))
     quiz_rowspans, quiz_covered = _compute_rowspans(entries, lambda entry: entry.quiz_released)
+    now = current_date()
 
     for i, entry in enumerate(entries):
         html_quiz = (
@@ -306,7 +311,7 @@ def render_schedule(schedule: Schedule) -> str:
             else _render_quiz(entry, quiz_rowspans.get(i, 0))
         )
         html_assignment = assignment_cells[i]
-        out += f"<tr>{_render_when(entry)}{_render_what(entry)}{html_quiz}{html_assignment}</tr>"
+        out += f"<tr>{_render_when(entry)}{_render_what(entry, now)}{html_quiz}{html_assignment}</tr>"
 
     out += "</tbody></table></div>"
     return out
