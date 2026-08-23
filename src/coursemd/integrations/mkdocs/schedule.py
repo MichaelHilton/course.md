@@ -28,8 +28,12 @@ def _render_what(entry: ScheduleEntry, now: dt.date) -> str:
             # ``preview_next`` (see core/schedule.py) teases the next day's
             # events before their own reveal date has passed, so their pages
             # are still filtered out of the build -- linking to one would be a
-            # dead link. Only link events whose day has actually arrived.
-            if event.link and entry.date <= now:
+            # dead link. Only link events whose page has actually been
+            # revealed -- ``reveal_date`` when the event carries one (e.g. an
+            # asynchronous recitation revealed ahead of its calendar date),
+            # otherwise the event's own date.
+            revealed_on = event.reveal_date or entry.date
+            if event.link and revealed_on <= now:
                 attributes["href"] = html.escape(event.link, quote=True)
 
             if kind == "lecture":

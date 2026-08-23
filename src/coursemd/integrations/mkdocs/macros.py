@@ -265,7 +265,11 @@ def define_env(env: t.Any) -> None:
     @env.macro
     def released_recitations(schedule: dict[str, t.Any]) -> list[Recitation]:
         """
-        Return a list of recitations whose session date has passed.
+        Return a list of recitations whose page has been revealed.
+
+        Uses each recitation's ``reveal_date`` when set (e.g. an asynchronous
+        recitation revealed ahead of its calendar date), falling back to its
+        session ``date`` otherwise.
 
         If ``integrations.mkdocs.show_unreleased_content`` is set, all recitations are
         returned regardless of date.
@@ -274,13 +278,17 @@ def define_env(env: t.Any) -> None:
             schedule: Dictionary containing schedule data
 
         Returns:
-            List of recitation objects whose date is on or before today
+            List of recitation objects whose reveal date (or date) is on or before today
         """
         recitations = t.cast("list[Recitation]", schedule.get("recitations", []))
         if schedule.get("show_unreleased_content"):
             return list(recitations)
         now = current_date()
-        return [recitation for recitation in recitations if recitation.date <= now]
+        return [
+            recitation
+            for recitation in recitations
+            if (recitation.reveal_date or recitation.date) <= now
+        ]
 
     @env.macro
     def grade_table(

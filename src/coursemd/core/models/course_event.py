@@ -22,6 +22,7 @@ class CourseEvent:
     link: str | None = None
     learning_goals: tuple[str, ...] = ()
     speakers: tuple[str, ...] = ()
+    reveal_date: dt.date | None = None
 
     @classmethod
     def parse(cls, value: Any) -> Self:
@@ -40,6 +41,8 @@ class CourseEvent:
         parsed_date = parse_date(value.get("date"))
         if parsed_date is None:
             raise CoursemdValidationError("event date must be a valid date or ISO-8601 timestamp.")
+
+        reveal_date = parse_date(value.get("reveal_date"))
 
         title = value.get("title")
         if not isinstance(title, str) or not title.strip():
@@ -80,6 +83,7 @@ class CourseEvent:
             link=link.strip() if isinstance(link, str) else None,
             learning_goals=tuple(learning_goals),
             speakers=tuple(speakers),
+            reveal_date=reveal_date,
         )
 
     @classmethod
