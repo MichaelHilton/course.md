@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import datetime as dt
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from coursemd.core.models.assignment import Assignment
 from coursemd.core.models.course_event import CourseEvent
 from coursemd.core.schedule import Schedule, ScheduleEntry
 from coursemd.integrations.mkdocs.schedule import render_schedule
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _entry(date: dt.date, events: list[CourseEvent] | None = None) -> ScheduleEntry:
@@ -73,3 +77,36 @@ def test_assignment_handout_links_to_assignment_page() -> None:
 
     assert 'href="/assignments/P1/"' in rendered
     assert 'href="index"' not in rendered
+
+
+def test_future_exam_stays_visible_while_future_lectures_are_hidden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CURRENT_DATE_OVERRIDE", "2026-08-27")
+
+    past_lecture = CourseEvent(kind="lecture", date=dt.date(2026, 8, 25), title="Intro")
+    teaser_lecture = CourseEvent(
+        kind="lecture", date=dt.date(2026, 9, 1), title="Case Study 737MAX"
+    )
+    hidden_lecture = CourseEvent(
+        kind="lecture", date=dt.date(2026, 9, 3), title="AI Usage"
+    )
+    midterm = CourseEvent(kind="midterm", date=dt.date(2026, 10, 8), title="Midterm 1")
+
+    schedule = Schedule.build(
+        earliest_date=dt.date(2026, 8, 25),
+        latest_date=dt.date(2026, 10, 9),
+        events=[past_lecture, teaser_lecture, hidden_lecture, midterm],
+        breaks=[],
+        assignments=[],
+        quizzes=[],
+    )
+
+    rendered = render_schedule(schedule)
+
+    assert "Midterm 1" in rendered
+    assert "Intro" in rendered
+    # The lecture past the "next upcoming" teaser is still hidden...
+    assert "AI Usage" not in rendered
+    # ...but the future midterm's date is shown anyway.
+    assert "label-red" in rendered

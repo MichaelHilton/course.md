@@ -67,18 +67,39 @@ class Schedule:
                     return break_
             return None
 
+        # Exam-like events stay on the schedule regardless of their date, so
+        # students can always see when the next exam is even while the
+        # surrounding lecture content is still hidden.
+        always_visible_kinds = {"midterm", "exam", "final"}
+
         def preview_next(
             events_by_date: dict[dt.date, list[CourseEvent]],
         ) -> dict[dt.date, list[CourseEvent]]:
-            """Keep all previous events and the next upcoming event, hide future ones."""
+            """Keep all previous events and the next upcoming event, hide future
+            ones -- except exam-like events, whose dates are always shown."""
             filtered: dict[dt.date, list[CourseEvent]] = {}
 
             # We keep all previous events as well as the next upcoming event
             # We ignore all other future events
-            for d in sorted(events_by_date):
+            sorted_dates = sorted(events_by_date)
+            for d in sorted_dates:
                 filtered[d] = events_by_date[d]
                 if d > now:
                     break
+
+            # Re-add exam-like events that fall past the preview cutoff. Only the
+            # exam events for that day are surfaced, so a future lecture sharing
+            # the date is not leaked.
+            for d in sorted_dates:
+                if d in filtered:
+                    continue
+                exam_events = [
+                    e
+                    for e in events_by_date[d]
+                    if e.kind.strip().lower() in always_visible_kinds
+                ]
+                if exam_events:
+                    filtered[d] = exam_events
 
             return filtered
 
